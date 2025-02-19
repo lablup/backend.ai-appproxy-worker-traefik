@@ -1,0 +1,31 @@
+[package]
+name = "appproxy-traefik"
+authors = ["Kyujin Cho <kyujin.cho@lablup.com>"]
+version = "1.0.1"
+edition = "2018"
+target = "wasm32-unknown-unknown"
+repository = "https://github.com/lablup/backend.ai-appproxy-worker-traefik"
+description = "Traefik plugin for Backend.AI AppProxy worker"
+include = ["libs/traefik_wasm_api/*"]
+publish = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "libs/traefik_wasm_api/src/lib.rs"
+
+[features]
+default = []
+
+[dependencies]
+lazy_static = "1.5.0"
+serde = { version = "1.0.214", features = ["derive"] }
+serde_json = "1.0.132"
+traefik_wasm_api = { path = "libs/traefik_wasm_api" }
+sha2 = "0.10.8"
+hmac = "0.12.1"
+hex-literal = "0.4.1"
+base64 = "0.22.1"
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
