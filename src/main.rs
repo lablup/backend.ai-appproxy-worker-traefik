@@ -5,10 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sha2::Sha256;
 use std::{
     collections::HashMap,
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Write},
     sync::Mutex,
-    time::{SystemTime, UNIX_EPOCH},
 };
 mod cookie;
 mod jwt;
