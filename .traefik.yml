@@ -2,13 +2,8 @@ displayName: traefik-appproxy
 type: middleware
 iconPath: .assets/icon.png
 
-summary: "[wasm] forward_auth"
+summary: "[wasm] Backend.AI AppProxy Traefik Plugin"
 
 wasmPath: plugin.wasm
 
 runtime: wasm
-
-testData:
-  cf_token: "DEADBEEF"
-  cf_org: "ABCDEFG"
-  cf_domain: "https://{yourdomain}.cloudflareaccess.com"

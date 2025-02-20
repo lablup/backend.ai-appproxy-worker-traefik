@@ -10,7 +10,14 @@ pub fn parse_cookie_header(cookie_header: &str) -> HashMap<String, String> {
         // Split each cookie into key=value
         if let Some(eq_pos) = trimmed_cookie.find('=') {
             let key = &trimmed_cookie[..eq_pos];
-            let value = &trimmed_cookie[eq_pos + 1..];
+            let mut value = &trimmed_cookie[eq_pos + 1..];
+
+            // unquote cookie value
+            if value.starts_with("\"") && value.ends_with("\"") {
+                value = &value[1..value.len() - 1];
+            } else if value.starts_with("\\\"") && value.ends_with("\\\"") {
+                value = &value[2..value.len() - 2];
+            }
 
             // Insert the key-value pair into the HashMap
             cookie_map.insert(key.to_string(), value.to_string());

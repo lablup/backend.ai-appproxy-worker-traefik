@@ -2,15 +2,17 @@ prog :=plugin
 
 build:
 	make release_cleanup
-	cargo build --target wasm32-unknown-unknown
+	RUSTFLAGS="--cfg wasmedge --cfg tokio_unstable" cargo build --target wasm32-wasip1
+	mkdir -p pkg/
 	cp .traefik.yml pkg/
-	cp target/wasm32-unknown-unknown/debug/traefik-example.wasm pkg/$(prog).wasm
+	cp target/wasm32-wasip1/debug/appproxy-traefik.wasm pkg/$(prog).wasm
 
 release:
 	make release_cleanup
-	cargo build --target wasm32-unknown-unknown --release
+	cargo build --target wasm32-wasip1 --release
+	mkdir -p pkg/
 	cp .traefik.yml pkg/
-	cp target/wasm32-unknown-unknown/release/traefik-example.wasm pkg/$(prog).wasm
+	cp target/wasm32-wasip1/release/appproxy-traefik.wasm pkg/$(prog).wasm
 
 release_cleanup:
 	rm -rf pkg/
@@ -25,8 +27,8 @@ docker:
 	docker compose up
 
 setup:
-	rustup target add wasm32-unknown-unknown
-	cargo check --target wasm32-unknown-unknown --no-default-features
+	rustup target add wasm32-wasip1
+	cargo check --target wasm32-wasip1 --no-default-features
 
 http:
 	curl -sS -D - 127.0.0.1/foo -o /dev/null
