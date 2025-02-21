@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sha2::Sha256;
 use std::{
     collections::HashMap,
-    fs::{self, OpenOptions},
+    fs::OpenOptions,
     io::{self, Write},
     sync::Mutex,
 };
@@ -130,8 +130,7 @@ pub struct HostPortPair {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RawPluginConfig {
-    pub circuits: HashMap<String, String>, // value contains JSON String here
-    pub host_circuit_map: HashMap<String, String>,
+    pub circuit: String, // value contains JSON String here
     pub jwt_secret: String,
     pub permit_hash_secret: String,
     pub permit_cookie_name: String,
@@ -139,8 +138,7 @@ pub struct RawPluginConfig {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginConfig {
-    pub circuits: HashMap<String, SerializableCircuit>,
-    pub host_circuit_map: HashMap<String, String>,
+    pub circuit: SerializableCircuit,
     pub jwt_secret: String,
     pub permit_hash_secret: String,
     pub permit_cookie_name: String,
@@ -159,11 +157,6 @@ lazy_static! {
             error_log!("last-used-time-marker file not found");
             panic!("Initialization failed")
         }
-        let paths = fs::read_dir("/appproxy-traefik").unwrap();
-
-        for path in paths {
-            debug_log!("Name: {}", path.unwrap().path().display());
-        }
 
         let raw_config =
             match serde_json::from_slice::<RawPluginConfig>(&traefik_wasm_api::get_conf()) {
@@ -174,32 +167,19 @@ lazy_static! {
                 }
             };
 
-        let mut config = PluginConfig {
-            circuits: HashMap::new(),
-            host_circuit_map: HashMap::new(),
+        let config = PluginConfig {
+            circuit: match serde_json::from_slice(raw_config.circuit.as_bytes()) {
+                Ok(c) => c,
+                Err(e) => {
+                    error_log!("Failed to load configuration: {:?}", e);
+                    panic!("Error: {:?}", e)
+                }
+            },
             jwt_secret: raw_config.jwt_secret,
             permit_hash_secret: raw_config.permit_hash_secret,
             permit_cookie_name: raw_config.permit_cookie_name,
         };
 
-        for (key, value) in raw_config.circuits.into_iter() {
-            match serde_json::from_slice(value.as_bytes()) {
-                Ok(c) => config.circuits.insert(key, c),
-                Err(e) => {
-                    error_log!("Failed to load configuration: {:?}", e);
-                    panic!("Error: {:?}", e)
-                }
-            };
-        }
-        for (key, value) in raw_config.host_circuit_map.into_iter() {
-            match urlencoding::decode(key.as_str()) {
-                Ok(s) => config.host_circuit_map.insert(s.to_string(), value),
-                Err(e) => {
-                    error_log!("Failed to load configuration: {:?}", e);
-                    panic!("Error: {:?}", e)
-                }
-            };
-        }
         info_log!("Loaded configuration");
         debug_log!("{:?}", config);
         config
@@ -359,42 +339,15 @@ fn validate_cookie(user_id: &str) -> Result<(), AuthenticationError> {
 #[export_name = "handle_request"]
 pub fn http_request() -> i64 {
     let path = traefik_wasm_api::get_request_uri();
-    let host_headers = traefik_wasm_api::get_header_val(traefik_wasm_api::REQUEST_HEADER, &"Host");
-    let host = match host_headers.get(0) {
-        Some(h) => h,
-        None => {
-            traefik_wasm_api::writebody(traefik_wasm_api::RESPONSE_BODY, "host header not found");
-            traefik_wasm_api::set_code(500);
-            return STOP_EXECUTION;
-        }
-    };
 
     info_log!("{:?} start", path);
 
-    let circuit = match CONFIG.host_circuit_map.get(host) {
-        Some(i) => match CONFIG.circuits.get(i) {
-            Some(c) => c,
-            None => {
-                traefik_wasm_api::writebody(traefik_wasm_api::RESPONSE_BODY, "circuit not found");
-                traefik_wasm_api::set_code(500);
-                // fixme: indicate about the error to client
-                return STOP_EXECUTION;
-            }
-        },
-        None => {
-            // FIXME: indicate about the error to client
-            traefik_wasm_api::writebody(
-                traefik_wasm_api::RESPONSE_BODY,
-                format!("Cannot find reference to circuit using host {:?}", host).as_str(),
-            );
-            traefik_wasm_api::set_code(500);
-            return STOP_EXECUTION;
-        }
-    };
-
-    let control = if !circuit.open_to_public {
-        match (circuit.endpoint_id.clone(), circuit.user_id.clone()) {
-            (Some(_), _) => match validate_jwt(circuit.id.as_str()) {
+    let control = if !CONFIG.circuit.open_to_public {
+        match (
+            CONFIG.circuit.endpoint_id.clone(),
+            CONFIG.circuit.user_id.clone(),
+        ) {
+            (Some(_), _) => match validate_jwt(CONFIG.circuit.id.as_str()) {
                 Ok(_) => CONTINUE_EXECUTION,
                 Err(e) => {
                     warn_log!("Failed to authenticate JWT: {:?}", e);
@@ -451,7 +404,7 @@ pub fn http_request() -> i64 {
     let control = if is_websocket {
         match CONTEXT.lock() {
             Ok(mut context) => {
-                context.insert(req_ctx, circuit.id.to_string());
+                context.insert(req_ctx, CONFIG.circuit.id.to_string());
                 (req_ctx as i64) << 32 | 1
             }
             Err(e) => {
@@ -466,12 +419,16 @@ pub fn http_request() -> i64 {
     debug_log!("Control: {}", control);
 
     if control != 0 {
-        match mark_last_used_time(circuit.session_ids.clone(), &circuit.id, is_websocket) {
+        match mark_last_used_time(
+            CONFIG.circuit.session_ids.clone(),
+            &CONFIG.circuit.id,
+            is_websocket,
+        ) {
             Ok(_) => control,
             Err(e) => {
                 error_log!(
                     "Failed to mark last used time for circuit {}: {:?}",
-                    circuit.id,
+                    CONFIG.circuit.id,
                     e
                 );
 

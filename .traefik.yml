@@ -7,3 +7,6 @@ summary: "[wasm] Backend.AI AppProxy Traefik Plugin"
 wasmPath: plugin.wasm
 
 runtime: wasm
+
+testData:
+  a: bb

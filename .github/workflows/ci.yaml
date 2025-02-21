@@ -42,8 +42,8 @@ jobs:
         run: make release
       - name: Create plugin folder structure
         run: |
-          mkdir -p plugins-local/src/backend.ai/appproxy-traefik-plugin
-          cp pkg/* plugins-local/src/backend.ai/appproxy-traefik-plugin
+          mkdir -p plugins-local/src
+          cp -r pkg/* plugins-local/src
           tar cvzf appproxy-traefik-plugin.tar.gz plugins-local
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
