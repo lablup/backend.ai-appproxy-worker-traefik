@@ -1,131 +1,21 @@
 use base64::{prelude::BASE64_STANDARD, Engine};
 use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::{
-    collections::HashMap,
-    fs::OpenOptions,
-    io::{self, Write},
-    sync::Mutex,
+use std::{collections::HashMap, sync::Mutex};
+
+use appproxy_traefik_lib::{
+    cookie, debug_log, dto::SerializableCircuit, error_log, info_log, jwt, warn_log,
 };
-mod cookie;
-mod jwt;
-mod utils;
-use std::path::Path;
+
 use traefik_wasm_api;
 
 const CONTINUE_EXECUTION: i64 = 16 << 32 | 1;
 const STOP_EXECUTION: i64 = 0 << 32 | 0;
-const LAST_USED_TIME_MARKER_PATH: &str = "/appproxy-traefik/last-used-time-marker";
-
-#[derive(Debug, Clone, Serialize)]
-pub enum FrontendMode {
-    WildcardDomain,
-    Port,
-}
-impl<'de> serde::Deserialize<'de> for FrontendMode {
-    fn deserialize<D>(de: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let variant = String::deserialize(de)?;
-        Ok(match variant.as_str() {
-            "wildcard" => FrontendMode::WildcardDomain,
-            "port" => FrontendMode::Port,
-            _ => todo!("should not reach here"),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub enum ProxyProtocol {
-    Http,
-    Grpc,
-    Http2,
-    Tcp,
-    Preopen,
-}
-
-impl<'de> serde::Deserialize<'de> for ProxyProtocol {
-    fn deserialize<D>(de: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let variant = String::deserialize(de)?;
-        Ok(match variant.as_str() {
-            "http" => ProxyProtocol::Http,
-            "grpc" => ProxyProtocol::Grpc,
-            "http2" => ProxyProtocol::Http2,
-            "tcp" => ProxyProtocol::Tcp,
-            "preopen" => ProxyProtocol::Preopen,
-            _ => todo!("should not reach here"),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub enum AppMode {
-    Interactive,
-    Inference,
-}
-
-impl<'de> serde::Deserialize<'de> for AppMode {
-    fn deserialize<D>(de: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let variant = String::deserialize(de)?;
-        Ok(match variant.as_str() {
-            "interactive" => AppMode::Interactive,
-            "inference" => AppMode::Inference,
-            _ => todo!("should not reach here"),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RouteInfo {
-    pub route_id: Option<String>,
-    pub session_id: String,
-    pub session_name: Option<String>,
-    pub kernel_host: String,
-    pub kernel_port: i32,
-    pub protocol: ProxyProtocol,
-    pub traffic_ratio: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializableCircuit {
-    pub id: String,
-    pub app: String,
-    pub protocol: ProxyProtocol,
-    pub worker: String,
-    pub app_mode: AppMode,
-    pub frontend_mode: FrontendMode,
-    pub envs: HashMap<String, String>, // This represents a dictionary of string keys and values of any type.
-    pub arguments: Option<String>,
-    pub open_to_public: bool,
-    pub allowed_client_ips: Option<String>,
-    pub port: Option<i32>,
-    pub subdomain: Option<String>,
-    pub user_id: Option<String>,
-    pub endpoint_id: Option<String>,
-    pub runtime_variant: Option<String>,
-    pub route_info: Vec<RouteInfo>,
-    pub session_ids: Vec<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
 
 pub struct PluginContext {
     pub config: PluginConfig,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HostPortPair {
-    pub host: String,
-    pub port: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -153,11 +43,6 @@ pub struct Claims {
 lazy_static! {
     static ref CONTEXT: Mutex<HashMap<i32, String>> = Mutex::new(HashMap::new());
     static ref CONFIG: PluginConfig = {
-        if !Path::new(LAST_USED_TIME_MARKER_PATH).exists() {
-            error_log!("last-used-time-marker file not found");
-            panic!("Initialization failed")
-        }
-
         let raw_config =
             match serde_json::from_slice::<RawPluginConfig>(&traefik_wasm_api::get_conf()) {
                 Ok(raw_config) => raw_config,
@@ -206,45 +91,6 @@ impl std::fmt::Display for RedisError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "RedisError: {}", self.reason)
     }
-}
-
-pub fn mark_last_used_time(
-    session_ids: Vec<String>,
-    circuit_id: &str,
-    is_websocket: bool,
-) -> Result<(), io::Error> {
-    let mut lines: Vec<String> = session_ids
-        .iter()
-        .map(|id| format!("mark,session.{}.last_access\n", id).to_string())
-        .collect();
-    lines.push(format!("mark,circuit.{}.last_access\n", circuit_id).to_string());
-    if is_websocket {
-        lines.push(format!("activate,{}\n", circuit_id).to_string());
-    }
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .open(LAST_USED_TIME_MARKER_PATH)
-        .expect("Failed to open last used time marker");
-
-    for line in lines {
-        file.write(line.as_bytes()).unwrap();
-        debug_log!("Wrote {}", line);
-    }
-    file.flush()
-}
-
-pub fn clear_websocket_last_used_time_marker(circuit_id: &str) -> Result<(), io::Error> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .open(LAST_USED_TIME_MARKER_PATH)
-        .expect("Failed to open last used time marker");
-    let line = format!("deactivate,{}", circuit_id);
-    if let Err(e) = file.write(line.as_bytes()) {
-        error_log!("Error while recording last used time information: {:?}", e);
-    }
-    debug_log!("Wrote {}", line);
-    file.flush()
 }
 
 pub fn validate_jwt(circuit_id: &str) -> Result<(), AuthenticationError> {
@@ -336,13 +182,24 @@ fn validate_cookie(user_id: &str) -> Result<(), AuthenticationError> {
     }
 }
 
+fn handle_preflight_request() {
+    traefik_wasm_api::set_code(204);
+}
+
 #[export_name = "handle_request"]
 pub fn http_request() -> i64 {
     let path = traefik_wasm_api::get_request_uri();
 
     info_log!("{:?} start", path);
 
-    let control = if !CONFIG.circuit.open_to_public {
+    if traefik_wasm_api::get_request_method() == "OPTIONS" {
+        handle_preflight_request();
+        return 0;
+    }
+
+    let skip_auth = CONFIG.circuit.open_to_public;
+
+    let control = if !skip_auth {
         match (
             CONFIG.circuit.endpoint_id.clone(),
             CONFIG.circuit.user_id.clone(),
@@ -351,11 +208,16 @@ pub fn http_request() -> i64 {
                 Ok(_) => CONTINUE_EXECUTION,
                 Err(e) => {
                     warn_log!("Failed to authenticate JWT: {:?}", e);
+                    traefik_wasm_api::set_code(401);
+                    traefik_wasm_api::set_header(
+                        traefik_wasm_api::RESPONSE_HEADER,
+                        &"Content-Type",
+                        "text/plain",
+                    );
                     traefik_wasm_api::writebody(
                         traefik_wasm_api::RESPONSE_BODY,
                         "Not Authenticated - INVALIDJWT",
                     );
-                    traefik_wasm_api::set_code(401);
                     // FIXME: indicate about the error to client
                     STOP_EXECUTION
                 }
@@ -364,22 +226,32 @@ pub fn http_request() -> i64 {
                 Ok(_) => CONTINUE_EXECUTION,
                 Err(e) => {
                     warn_log!("Failed to authenticate cookie: {:?}", e);
+                    traefik_wasm_api::set_code(401);
+                    traefik_wasm_api::set_header(
+                        traefik_wasm_api::RESPONSE_HEADER,
+                        &"Content-Type",
+                        "text/plain",
+                    );
                     traefik_wasm_api::writebody(
                         traefik_wasm_api::RESPONSE_BODY,
                         "Not Authenticated - INVALIDCOOKIE",
                     );
-                    traefik_wasm_api::set_code(401);
 
                     STOP_EXECUTION
                 }
             },
             (None, None) => {
                 // FIXME: indicate about the error to client
+                traefik_wasm_api::set_code(401);
+                traefik_wasm_api::set_header(
+                    traefik_wasm_api::RESPONSE_HEADER,
+                    &"Content-Type",
+                    "text/plain",
+                );
                 traefik_wasm_api::writebody(
                     traefik_wasm_api::RESPONSE_BODY,
                     "Not Authenticated - NOCIRCUIT(N)",
                 );
-                traefik_wasm_api::set_code(401);
                 STOP_EXECUTION
             }
         }
@@ -418,52 +290,61 @@ pub fn http_request() -> i64 {
 
     debug_log!("Control: {}", control);
 
-    if control != 0 {
-        match mark_last_used_time(
-            CONFIG.circuit.session_ids.clone(),
-            &CONFIG.circuit.id,
-            is_websocket,
-        ) {
-            Ok(_) => control,
-            Err(e) => {
-                error_log!(
-                    "Failed to mark last used time for circuit {}: {:?}",
-                    CONFIG.circuit.id,
-                    e
-                );
+    control
+    // let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    // if control != 0 {
+    //     runtime.block_on(async {
+    //         match mark_last_used_time(
+    //             CONFIG.circuit.session_ids.clone(),
+    //             &CONFIG.circuit.id,
+    //             is_websocket,
+    //         )
+    //         .await
+    //         {
+    //             Ok(_) => control,
+    //             Err(e) => {
+    //                 error_log!(
+    //                     "Failed to mark last used time for circuit {}: {:?}",
+    //                     CONFIG.circuit.id,
+    //                     e
+    //                 );
 
-                if is_websocket {
-                    match CONTEXT.lock() {
-                        Ok(mut context) => {
-                            context.remove(&req_ctx);
-                        }
-                        Err(e) => {
-                            error_log!("Failed to set request context: {:?}", e);
-                        }
-                    };
-                }
-                control
-            }
-        }
-    } else {
-        0
-    }
+    //                 if is_websocket {
+    //                     match CONTEXT.lock() {
+    //                         Ok(mut context) => {
+    //                             context.remove(&req_ctx);
+    //                         }
+    //                         Err(e) => {
+    //                             error_log!("Failed to set request context: {:?}", e);
+    //                         }
+    //                     };
+    //                 }
+    //                 control
+    //             }
+    //         }
+    //     })
+    // } else {
+    //     0
+    // }
 }
 
 #[export_name = "handle_response"]
 fn http_response(_req_ctx: i32, _is_error: i32) {
     let path = traefik_wasm_api::get_request_uri();
+    // let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
     match CONTEXT.lock() {
         Ok(mut context) => {
             if let Some(circuit_id) = context.remove(&_req_ctx) {
-                if let Err(e) = clear_websocket_last_used_time_marker(&circuit_id) {
-                    error_log!(
-                        "Failed to clear active marker for {} on redis: {:?}",
-                        circuit_id,
-                        e
-                    );
-                }
+                // runtime.block_on(async {
+                //     if let Err(e) = clear_websocket_last_used_time_marker(&circuit_id).await {
+                //         error_log!(
+                //             "Failed to clear active marker for {} on redis: {:?}",
+                //             circuit_id,
+                //             e
+                //         );
+                //     }
+                // })
             }
         }
         Err(e) => {

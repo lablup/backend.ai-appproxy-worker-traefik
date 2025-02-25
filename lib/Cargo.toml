@@ -1,0 +1,23 @@
+[package]
+name = "appproxy_traefik_lib"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+description.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+
+[dependencies]
+traefik_wasm_api = { path = "../traefik_wasm_api" }
+serde = { version = "1.0.214", features = ["derive"] }
+serde_json = "1.0.132"
+sha2 = "0.10.8"
+hmac = "0.12.1"
+hex-literal = "0.4.1"
+base64 = "0.22.1"
