@@ -2,7 +2,7 @@ prog := plugin
 
 build:
 	make release_cleanup
-	RUSTFLAGS="--cfg wasmedge --cfg tokio_unstable" cargo build --target wasm32-wasip1
+	cargo build --target wasm32-wasip1
 	mkdir -p pkg/backend.ai/appproxy-traefik-plugin
 	cp .traefik.yml pkg/backend.ai/appproxy-traefik-plugin
 	cp -r go pkg/backend.ai/appproxy-traefik-plugin-go
@@ -10,7 +10,7 @@ build:
 
 release:
 	make release_cleanup
-	RUSTFLAGS="--cfg wasmedge --cfg tokio_unstable" cargo build --target wasm32-wasip1 --release
+	cargo build --target wasm32-wasip1 --release
 	mkdir -p pkg/backend.ai/appproxy-traefik-plugin
 	cp .traefik.yml pkg/backend.ai/appproxy-traefik-plugin
 	cp -r go pkg/backend.ai/appproxy-traefik-plugin-go

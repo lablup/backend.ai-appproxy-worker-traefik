@@ -3,7 +3,6 @@ use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::{collections::HashMap, sync::Mutex};
 
 use appproxy_traefik_lib::{
     cookie, debug_log, dto::SerializableCircuit, error_log, info_log, jwt, warn_log,
@@ -41,7 +40,6 @@ pub struct Claims {
 
 // Returns the Structured Configuration from the host in JSON format
 lazy_static! {
-    static ref CONTEXT: Mutex<HashMap<i32, String>> = Mutex::new(HashMap::new());
     static ref CONFIG: PluginConfig = {
         let raw_config =
             match serde_json::from_slice::<RawPluginConfig>(&traefik_wasm_api::get_conf()) {
@@ -267,90 +265,14 @@ pub fn http_request() -> i64 {
         panic!("RNG not working!")
     };
     let req_ctx = req_ctx_u32 as i32;
-    let upgrade_headers =
-        traefik_wasm_api::get_header_val(traefik_wasm_api::REQUEST_HEADER, &"Upgrade");
-    let is_websocket = match upgrade_headers.get(0) {
-        Some(upgrade) => upgrade.to_lowercase() == "websocket",
-        None => false,
-    };
-    let control = if is_websocket {
-        match CONTEXT.lock() {
-            Ok(mut context) => {
-                context.insert(req_ctx, CONFIG.circuit.id.to_string());
-                (req_ctx as i64) << 32 | 1
-            }
-            Err(e) => {
-                error_log!("Failed to set request context: {:?}", e);
-                0
-            }
-        }
-    } else {
-        control
-    };
 
-    debug_log!("Control: {}", control);
-
-    control
-    // let runtime = Builder::new_current_thread().enable_all().build().unwrap();
-    // if control != 0 {
-    //     runtime.block_on(async {
-    //         match mark_last_used_time(
-    //             CONFIG.circuit.session_ids.clone(),
-    //             &CONFIG.circuit.id,
-    //             is_websocket,
-    //         )
-    //         .await
-    //         {
-    //             Ok(_) => control,
-    //             Err(e) => {
-    //                 error_log!(
-    //                     "Failed to mark last used time for circuit {}: {:?}",
-    //                     CONFIG.circuit.id,
-    //                     e
-    //                 );
-
-    //                 if is_websocket {
-    //                     match CONTEXT.lock() {
-    //                         Ok(mut context) => {
-    //                             context.remove(&req_ctx);
-    //                         }
-    //                         Err(e) => {
-    //                             error_log!("Failed to set request context: {:?}", e);
-    //                         }
-    //                     };
-    //                 }
-    //                 control
-    //             }
-    //         }
-    //     })
-    // } else {
-    //     0
-    // }
+    (req_ctx as i64) << 32 | 1
 }
 
 #[export_name = "handle_response"]
 fn http_response(_req_ctx: i32, _is_error: i32) {
     let path = traefik_wasm_api::get_request_uri();
-    // let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
-    match CONTEXT.lock() {
-        Ok(mut context) => {
-            if let Some(circuit_id) = context.remove(&_req_ctx) {
-                // runtime.block_on(async {
-                //     if let Err(e) = clear_websocket_last_used_time_marker(&circuit_id).await {
-                //         error_log!(
-                //             "Failed to clear active marker for {} on redis: {:?}",
-                //             circuit_id,
-                //             e
-                //         );
-                //     }
-                // })
-            }
-        }
-        Err(e) => {
-            error_log!("Failed to delete request context: {:?}", e);
-        }
-    }
     info_log!("{:?} complete", path);
 }
 
