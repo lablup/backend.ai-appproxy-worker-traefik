@@ -46,13 +46,14 @@ fn get_config() -> PluginConfig {
     CONFIG.with(|config_cell| {
         let mut config_opt = config_cell.borrow_mut();
         if config_opt.is_none() {
-            let raw_config = match serde_json::from_slice::<RawPluginConfig>(&traefik_wasm_api::get_conf()) {
-                Ok(raw_config) => raw_config,
-                Err(e) => {
-                    error_log!("Failed to load configuration: {:?}", e);
-                    panic!("Error: {:?}", e)
-                }
-            };
+            let raw_config =
+                match serde_json::from_slice::<RawPluginConfig>(&traefik_wasm_api::get_conf()) {
+                    Ok(raw_config) => raw_config,
+                    Err(e) => {
+                        error_log!("Failed to load configuration: {:?}", e);
+                        panic!("Error: {:?}", e)
+                    }
+                };
 
             let config = PluginConfig {
                 circuit: match serde_json::from_slice(raw_config.circuit.as_bytes()) {
