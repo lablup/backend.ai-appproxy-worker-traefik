@@ -1,8 +1,8 @@
 use base64::{prelude::BASE64_STANDARD, Engine};
 use hmac::{Hmac, Mac};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::cell::RefCell;
 
 use appproxy_traefik_lib::{
     cookie, debug_log, dto::SerializableCircuit, error_log, info_log, jwt, warn_log,
@@ -25,7 +25,7 @@ pub struct RawPluginConfig {
     pub permit_cookie_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginConfig {
     pub circuit: SerializableCircuit,
     pub jwt_secret: String,
@@ -38,11 +38,15 @@ pub struct Claims {
     pub id: String,
 }
 
-// Returns the Structured Configuration from the host in JSON format
-lazy_static! {
-    static ref CONFIG: PluginConfig = {
-        let raw_config =
-            match serde_json::from_slice::<RawPluginConfig>(&traefik_wasm_api::get_conf()) {
+thread_local! {
+    static CONFIG: RefCell<Option<PluginConfig>> = RefCell::new(None);
+}
+
+fn get_config() -> PluginConfig {
+    CONFIG.with(|config_cell| {
+        let mut config_opt = config_cell.borrow_mut();
+        if config_opt.is_none() {
+            let raw_config = match serde_json::from_slice::<RawPluginConfig>(&traefik_wasm_api::get_conf()) {
                 Ok(raw_config) => raw_config,
                 Err(e) => {
                     error_log!("Failed to load configuration: {:?}", e);
@@ -50,23 +54,25 @@ lazy_static! {
                 }
             };
 
-        let config = PluginConfig {
-            circuit: match serde_json::from_slice(raw_config.circuit.as_bytes()) {
-                Ok(c) => c,
-                Err(e) => {
-                    error_log!("Failed to load configuration: {:?}", e);
-                    panic!("Error: {:?}", e)
-                }
-            },
-            jwt_secret: raw_config.jwt_secret,
-            permit_hash_secret: raw_config.permit_hash_secret,
-            permit_cookie_name: raw_config.permit_cookie_name,
-        };
+            let config = PluginConfig {
+                circuit: match serde_json::from_slice(raw_config.circuit.as_bytes()) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error_log!("Failed to load configuration: {:?}", e);
+                        panic!("Error: {:?}", e)
+                    }
+                },
+                jwt_secret: raw_config.jwt_secret,
+                permit_hash_secret: raw_config.permit_hash_secret,
+                permit_cookie_name: raw_config.permit_cookie_name,
+            };
 
-        info_log!("Loaded configuration");
-        debug_log!("{:?}", config);
-        config
-    };
+            info_log!("Loaded configuration");
+            debug_log!("{:?}", config);
+            *config_opt = Some(config);
+        }
+        config_opt.as_ref().unwrap().clone()
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -106,7 +112,8 @@ pub fn validate_jwt(circuit_id: &str) -> Result<(), AuthenticationError> {
     match &headers[..] {
         [method, token_str] if *method == "Bearer" || *method == "BackendAI" => {
             debug_log!("Token: {}", token_str);
-            match jwt::decode_jwt::<Claims>(&token_str, &CONFIG.jwt_secret) {
+            let config = get_config();
+            match jwt::decode_jwt::<Claims>(&token_str, &config.jwt_secret) {
                 Ok(claims) => {
                     if &claims.id == circuit_id {
                         Ok(())
@@ -143,7 +150,8 @@ fn validate_cookie(user_id: &str) -> Result<(), AuthenticationError> {
 
     let cookie_map = cookie::parse_cookie_header(&cookie_str);
 
-    let provided_hash = match cookie_map.get(CONFIG.permit_cookie_name.as_str()) {
+    let config = get_config();
+    let provided_hash = match cookie_map.get(config.permit_cookie_name.as_str()) {
         Some(h) => h,
         None => {
             return Err(AuthenticationError {
@@ -153,10 +161,10 @@ fn validate_cookie(user_id: &str) -> Result<(), AuthenticationError> {
     };
     debug_log!(
         "Permit hash: {} ({})",
-        CONFIG.permit_hash_secret,
-        BASE64_STANDARD.encode(CONFIG.permit_hash_secret.as_bytes())
+        config.permit_hash_secret,
+        BASE64_STANDARD.encode(config.permit_hash_secret.as_bytes())
     );
-    let mut mac = Hmac::<Sha256>::new_from_slice(CONFIG.permit_hash_secret.as_bytes())
+    let mut mac = Hmac::<Sha256>::new_from_slice(config.permit_hash_secret.as_bytes())
         .expect("Should not reach here");
     mac.update(user_id.as_bytes());
     debug_log!(
@@ -195,14 +203,15 @@ pub fn http_request() -> i64 {
         return 0;
     }
 
-    let skip_auth = CONFIG.circuit.open_to_public;
+    let config = get_config();
+    let skip_auth = config.circuit.open_to_public;
 
     let control = if !skip_auth {
         match (
-            CONFIG.circuit.endpoint_id.clone(),
-            CONFIG.circuit.user_id.clone(),
+            config.circuit.endpoint_id.clone(),
+            config.circuit.user_id.clone(),
         ) {
-            (Some(_), _) => match validate_jwt(CONFIG.circuit.id.as_str()) {
+            (Some(_), _) => match validate_jwt(config.circuit.id.as_str()) {
                 Ok(_) => CONTINUE_EXECUTION,
                 Err(e) => {
                     warn_log!("Failed to authenticate JWT: {:?}", e);
