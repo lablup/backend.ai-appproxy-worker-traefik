@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -26,46 +27,52 @@ func CreateConfig() *Config {
 
 // Plugin a Plugin plugin.
 type Plugin struct {
-	config   *Config
-	next     http.Handler
-	name     string
-	template *template.Template
+	config     *Config
+	next       http.Handler
+	name       string
+	template   *template.Template
+	httpClient *http.Client
 }
 
 // New created a new Plugin plugin.
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	os.Stderr.WriteString(fmt.Sprintf("########## New, config: %+v $$$$$$$$$$\n", config))
+
+	// Create HTTP client with timeout
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", config.LastUsedMarkerPath)
+			},
+			IdleConnTimeout: 10 * time.Second,
+		},
+	}
+
 	return &Plugin{
-		config:   config,
-		next:     next,
-		name:     name,
-		template: template.New("demo").Delims("[[", "]]"),
+		config:     config,
+		next:       next,
+		name:       name,
+		template:   template.New("demo").Delims("[[", "]]"),
+		httpClient: httpClient,
 	}, nil
 }
 
 func (a *Plugin) MarkLastUsed(isWebsocket bool) {
-	client := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", a.config.LastUsedMarkerPath)
-			},
-		},
-	}
-
-	_, err := client.Head(fmt.Sprintf("http://unix/circuit.%s/mark-last-used-time", a.config.Id))
+	_, err := a.httpClient.Head(fmt.Sprintf("http://unix/circuit.%s/mark-last-used-time", a.config.Id))
 	if err != nil {
 		os.Stderr.WriteString(fmt.Sprintf("Failed to mark last used time of circuit.%s: %v\n", a.config.Id, err))
 	}
 
 	for _, sessionId := range a.config.SessionIds {
-		_, err := client.Head(fmt.Sprintf("http://unix/session.%s/mark-last-used-time", sessionId))
+		_, err := a.httpClient.Head(fmt.Sprintf("http://unix/session.%s/mark-last-used-time", sessionId))
 		if err != nil {
 			os.Stderr.WriteString(fmt.Sprintf("Failed to mark last used time of session.%s: %v\n", sessionId, err))
 		}
 	}
 
 	if isWebsocket {
-		_, err := client.Head(fmt.Sprintf("http://unix/%s/mark-active", a.config.Id))
+		_, err := a.httpClient.Head(fmt.Sprintf("http://unix/%s/mark-active", a.config.Id))
 		if err != nil {
 			os.Stderr.WriteString(fmt.Sprintf("Failed to mark active of %s: %v\n", a.config.Id, err))
 		}
@@ -73,15 +80,7 @@ func (a *Plugin) MarkLastUsed(isWebsocket bool) {
 }
 
 func (a *Plugin) MarkInactive() {
-	client := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", a.config.LastUsedMarkerPath)
-			},
-		},
-	}
-
-	_, err := client.Head(fmt.Sprintf("http://unix/%s/mark-inactive", a.config.Id))
+	_, err := a.httpClient.Head(fmt.Sprintf("http://unix/%s/mark-inactive", a.config.Id))
 	if err != nil {
 		os.Stderr.WriteString(fmt.Sprintf("Failed to mark inactive of %s: %v\n", a.config.Id, err))
 	}
