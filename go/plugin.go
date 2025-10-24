@@ -59,13 +59,13 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 }
 
 func (a *Plugin) MarkLastUsed(isWebsocket bool) {
-	_, err := a.httpClient.Head(fmt.Sprintf("http://unix/circuit.%s/mark-last-used-time", a.config.Id))
+	_, err := a.httpClient.Head(fmt.Sprintf("http://unix/circuit.%s.last_access/mark-last-used-time", a.config.Id))
 	if err != nil {
 		os.Stderr.WriteString(fmt.Sprintf("Failed to mark last used time of circuit.%s: %v\n", a.config.Id, err))
 	}
 
 	for _, sessionId := range a.config.SessionIds {
-		_, err := a.httpClient.Head(fmt.Sprintf("http://unix/session.%s/mark-last-used-time", sessionId))
+		_, err := a.httpClient.Head(fmt.Sprintf("http://unix/session.%s.last_access/mark-last-used-time", sessionId))
 		if err != nil {
 			os.Stderr.WriteString(fmt.Sprintf("Failed to mark last used time of session.%s: %v\n", sessionId, err))
 		}
