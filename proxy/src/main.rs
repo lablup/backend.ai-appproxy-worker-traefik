@@ -1,5 +1,5 @@
 use base64::{prelude::BASE64_STANDARD, Engine};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -180,20 +180,11 @@ fn validate_cookie(user_id: &str) -> Result<(), AuthenticationError> {
     }
 }
 
-fn handle_preflight_request() {
-    traefik_wasm_api::set_code(204);
-}
-
 #[export_name = "handle_request"]
 pub fn http_request() -> i64 {
     let path = traefik_wasm_api::get_request_uri();
 
     info_log!("{:?} start", path);
-
-    if traefik_wasm_api::get_request_method() == "OPTIONS" {
-        handle_preflight_request();
-        return 0;
-    }
 
     let skip_auth = CONFIG.circuit.open_to_public;
 

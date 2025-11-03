@@ -16,8 +16,8 @@ serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
 traefik_wasm_api = { path = "../traefik_wasm_api" }
 appproxy_traefik_lib = { path = "../lib" }
-sha2 = "0.10.8"
-hmac = "0.12.1"
+sha2 = "0.11.0-rc.2"
+hmac = "0.13.0-rc.2"
 hex-literal = "0.4.1"
 base64 = "0.22.1"
 urlencoding = "2.1.3"
