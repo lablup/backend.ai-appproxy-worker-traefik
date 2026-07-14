@@ -36,8 +36,6 @@ type Plugin struct {
 
 // New created a new Plugin plugin.
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
-	os.Stderr.WriteString(fmt.Sprintf("########## New, config: %+v $$$$$$$$$$\n", config))
-
 	// Create HTTP client with timeout
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,

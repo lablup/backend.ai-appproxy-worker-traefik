@@ -24,21 +24,13 @@ clean:
 	rm -rf pkg/
 	rm -rf target/
 
-docker:
-	make build
-	docker compose up
-
 setup:
 	rustup target add wasm32-wasip1
 	cargo check --target wasm32-wasip1 --no-default-features
 
-http:
-	curl -sS -D - 127.0.0.1/foo -o /dev/null
-
 debug:
 	make build
-	wasm2wat pkg/traefik-auth.wasm | less
-
+	wasm2wat pkg/backend.ai/appproxy-traefik-plugin/$(prog).wasm | less
 
 cargo:
-	cargo publish --manifest-path libs/traefik_wasm_api/Cargo.toml --target wasm32-unknown-unknown
+	cargo publish --manifest-path traefik_wasm_api/Cargo.toml --target wasm32-unknown-unknown
