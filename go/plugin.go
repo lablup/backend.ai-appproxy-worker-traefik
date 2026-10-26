@@ -12,16 +12,18 @@ import (
 )
 
 type Config struct {
-	LastUsedMarkerPath string   `yaml:"lastusedmarkerpath"`
-	Id                 string   `yaml:"id"`
-	SessionIds         []string `yaml:"sessionids"`
+	LastUsedMarkerPath      string   `yaml:"lastusedmarkerpath"`
+	Id                      string   `yaml:"id"`
+	SessionIds              []string `yaml:"sessionids"`
+	RejectBrotliRequestBody bool     `yaml:"rejectbrotlirequestbody"`
 }
 
 func CreateConfig() *Config {
 	return &Config{
-		LastUsedMarkerPath: "",
-		Id:                 "",
-		SessionIds:         []string{},
+		LastUsedMarkerPath:      "",
+		Id:                      "",
+		SessionIds:              []string{},
+		RejectBrotliRequestBody: false,
 	}
 }
 
@@ -84,7 +86,6 @@ func (a *Plugin) MarkInactive() {
 	}
 }
 
-// Session images may ship a Brotli decoder vulnerable to CVE-2026-111497.
 func (a *Plugin) isBrotliEncoded(req *http.Request) bool {
 	for _, headerValue := range req.Header.Values("Content-Encoding") {
 		for _, coding := range strings.Split(headerValue, ",") {
@@ -97,7 +98,7 @@ func (a *Plugin) isBrotliEncoded(req *http.Request) bool {
 }
 
 func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	if a.isBrotliEncoded(req) {
+	if a.config.RejectBrotliRequestBody && a.isBrotliEncoded(req) {
 		http.Error(rw, "Brotli-encoded request bodies are not accepted", http.StatusUnsupportedMediaType)
 		return
 	}
