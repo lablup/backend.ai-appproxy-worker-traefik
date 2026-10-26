@@ -84,7 +84,23 @@ func (a *Plugin) MarkInactive() {
 	}
 }
 
+// Session images may ship a Brotli decoder vulnerable to CVE-2026-111497.
+func (a *Plugin) isBrotliEncoded(req *http.Request) bool {
+	for _, headerValue := range req.Header.Values("Content-Encoding") {
+		for _, coding := range strings.Split(headerValue, ",") {
+			if strings.EqualFold(strings.TrimSpace(coding), "br") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	if a.isBrotliEncoded(req) {
+		http.Error(rw, "Brotli-encoded request bodies are not accepted", http.StatusUnsupportedMediaType)
+		return
+	}
 
 	isWebsocket := strings.ToLower(req.Header.Get("Upgrade")) == "websocket"
 
