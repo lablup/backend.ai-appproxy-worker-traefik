@@ -8,27 +8,27 @@ import (
 )
 
 type contentEncodingCase struct {
-	name                    string
-	rejectBrotliRequestBody bool
-	contentEncodings        []string
-	expectedStatus          int
-	expectedForwardedCount  int
+	name                   string
+	rejectBrotli           bool
+	contentEncodings       []string
+	expectedStatus         int
+	expectedForwardedCount int
 }
 
 func TestServeHTTPContentEncoding(t *testing.T) {
 	cases := []contentEncodingCase{
-		{name: "enabled/br", rejectBrotliRequestBody: true, contentEncodings: []string{"br"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
-		{name: "enabled/BR", rejectBrotliRequestBody: true, contentEncodings: []string{"BR"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
-		{name: "enabled/gzip, br", rejectBrotliRequestBody: true, contentEncodings: []string{"gzip, br"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
-		{name: "enabled/gzip + br", rejectBrotliRequestBody: true, contentEncodings: []string{"gzip", "br"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
-		{name: "enabled/none", rejectBrotliRequestBody: true, contentEncodings: nil, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
-		{name: "enabled/gzip", rejectBrotliRequestBody: true, contentEncodings: []string{"gzip"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
-		{name: "enabled/deflate", rejectBrotliRequestBody: true, contentEncodings: []string{"deflate"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
-		{name: "enabled/identity", rejectBrotliRequestBody: true, contentEncodings: []string{"identity"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
-		{name: "disabled/br", rejectBrotliRequestBody: false, contentEncodings: []string{"br"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
-		{name: "disabled/gzip, br", rejectBrotliRequestBody: false, contentEncodings: []string{"gzip, br"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
-		{name: "disabled/gzip", rejectBrotliRequestBody: false, contentEncodings: []string{"gzip"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
-		{name: "disabled/none", rejectBrotliRequestBody: false, contentEncodings: nil, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "enabled/br", rejectBrotli: true, contentEncodings: []string{"br"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
+		{name: "enabled/BR", rejectBrotli: true, contentEncodings: []string{"BR"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
+		{name: "enabled/gzip, br", rejectBrotli: true, contentEncodings: []string{"gzip, br"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
+		{name: "enabled/gzip + br", rejectBrotli: true, contentEncodings: []string{"gzip", "br"}, expectedStatus: http.StatusUnsupportedMediaType, expectedForwardedCount: 0},
+		{name: "enabled/none", rejectBrotli: true, contentEncodings: nil, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "enabled/gzip", rejectBrotli: true, contentEncodings: []string{"gzip"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "enabled/deflate", rejectBrotli: true, contentEncodings: []string{"deflate"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "enabled/identity", rejectBrotli: true, contentEncodings: []string{"identity"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "disabled/br", rejectBrotli: false, contentEncodings: []string{"br"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "disabled/gzip, br", rejectBrotli: false, contentEncodings: []string{"gzip, br"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "disabled/gzip", rejectBrotli: false, contentEncodings: []string{"gzip"}, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
+		{name: "disabled/none", rejectBrotli: false, contentEncodings: nil, expectedStatus: http.StatusOK, expectedForwardedCount: 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -37,8 +37,8 @@ func TestServeHTTPContentEncoding(t *testing.T) {
 				forwardedCount++
 			})
 			config := &Config{
-				LastUsedMarkerPath:      t.TempDir() + "/marker.sock",
-				RejectBrotliRequestBody: tc.rejectBrotliRequestBody,
+				LastUsedMarkerPath: t.TempDir() + "/marker.sock",
+				RejectBrotli:       tc.rejectBrotli,
 			}
 			handler, err := New(context.Background(), next, config, "test")
 			if err != nil {

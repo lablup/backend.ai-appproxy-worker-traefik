@@ -12,18 +12,18 @@ import (
 )
 
 type Config struct {
-	LastUsedMarkerPath      string   `yaml:"lastusedmarkerpath"`
-	Id                      string   `yaml:"id"`
-	SessionIds              []string `yaml:"sessionids"`
-	RejectBrotliRequestBody bool     `yaml:"rejectbrotlirequestbody"`
+	LastUsedMarkerPath string   `yaml:"lastusedmarkerpath"`
+	Id                 string   `yaml:"id"`
+	SessionIds         []string `yaml:"sessionids"`
+	RejectBrotli       bool     `yaml:"rejectbrotli"`
 }
 
 func CreateConfig() *Config {
 	return &Config{
-		LastUsedMarkerPath:      "",
-		Id:                      "",
-		SessionIds:              []string{},
-		RejectBrotliRequestBody: false,
+		LastUsedMarkerPath: "",
+		Id:                 "",
+		SessionIds:         []string{},
+		RejectBrotli:       false,
 	}
 }
 
@@ -98,7 +98,7 @@ func (a *Plugin) isBrotliEncoded(req *http.Request) bool {
 }
 
 func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	if a.config.RejectBrotliRequestBody && a.isBrotliEncoded(req) {
+	if a.config.RejectBrotli && a.isBrotliEncoded(req) {
 		http.Error(rw, "Brotli-encoded request bodies are not accepted", http.StatusUnsupportedMediaType)
 		return
 	}
