@@ -11,11 +11,15 @@ import (
 	"time"
 )
 
+type ContentEncodingConfig struct {
+	RejectedEncodings []string `yaml:"rejectedencodings"`
+}
+
 type Config struct {
-	LastUsedMarkerPath string   `yaml:"lastusedmarkerpath"`
-	Id                 string   `yaml:"id"`
-	SessionIds         []string `yaml:"sessionids"`
-	RejectBrotli       bool     `yaml:"rejectbrotli"`
+	LastUsedMarkerPath string                `yaml:"lastusedmarkerpath"`
+	Id                 string                `yaml:"id"`
+	SessionIds         []string              `yaml:"sessionids"`
+	ContentEncoding    ContentEncodingConfig `yaml:"contentencoding"`
 }
 
 func CreateConfig() *Config {
@@ -23,7 +27,7 @@ func CreateConfig() *Config {
 		LastUsedMarkerPath: "",
 		Id:                 "",
 		SessionIds:         []string{},
-		RejectBrotli:       false,
+		ContentEncoding:    ContentEncodingConfig{RejectedEncodings: []string{}},
 	}
 }
 
@@ -48,6 +52,12 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 			IdleConnTimeout: 10 * time.Second,
 		},
 	}
+
+	rejectedEncodings := make([]string, 0, len(config.ContentEncoding.RejectedEncodings))
+	for _, rejectedEncoding := range config.ContentEncoding.RejectedEncodings {
+		rejectedEncodings = append(rejectedEncodings, strings.ToLower(strings.TrimSpace(rejectedEncoding)))
+	}
+	config.ContentEncoding.RejectedEncodings = rejectedEncodings
 
 	return &Plugin{
 		config:     config,
@@ -86,20 +96,28 @@ func (a *Plugin) MarkInactive() {
 	}
 }
 
-func (a *Plugin) isBrotliEncoded(req *http.Request) bool {
-	for _, headerValue := range req.Header.Values("Content-Encoding") {
+func (a *Plugin) findRejectedContentEncoding(contentEncodingHeaders []string) (string, bool) {
+	// Each header line may list several codings, e.g. "gzip, br" (RFC 9110 section 8.4).
+	// Codings are case-insensitive (RFC 9110 section 8.4.1), and some session apps decode
+	// "BR" as brotli, so the header is lowercased like the configured codings.
+	for _, headerValue := range contentEncodingHeaders {
 		for _, coding := range strings.Split(headerValue, ",") {
-			if strings.EqualFold(strings.TrimSpace(coding), "br") {
-				return true
+			lowercasedCoding := strings.ToLower(strings.TrimSpace(coding))
+			for _, rejectedEncoding := range a.config.ContentEncoding.RejectedEncodings {
+				if lowercasedCoding == rejectedEncoding {
+					return lowercasedCoding, true
+				}
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
 func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	if a.config.RejectBrotli && a.isBrotliEncoded(req) {
-		http.Error(rw, "Brotli-encoded request bodies are not accepted", http.StatusUnsupportedMediaType)
+	contentEncodingHeaders := req.Header.Values("Content-Encoding")
+	rejectedEncoding, found := a.findRejectedContentEncoding(contentEncodingHeaders)
+	if found {
+		http.Error(rw, fmt.Sprintf("Request bodies encoded with %s are not accepted", rejectedEncoding), http.StatusUnsupportedMediaType)
 		return
 	}
 
